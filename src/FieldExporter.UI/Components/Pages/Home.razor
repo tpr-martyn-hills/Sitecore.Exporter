@@ -440,60 +440,106 @@
         StateHasChanged();
     }
 
-private async Task ExportRedirectToJSONAsync(bool isValidRedirect)
-{
-    try
+    private async Task ExportRedirectToJSONAsync(bool isValidRedirect)
     {
-        var redirectExport = new RedirectExportModel
+        try
+        {
+            var redirectUrls = RedirectItems.Where(x => x.IsValidRedirect == isValidRedirect).OrderBy(y => y.ItemPath).Take(100);
+
+            // foreach (var redirect in redirectUrls)
+            // {
+            //     redirect.DestinationUrl = redirect.DestinationUrl.StartsWith("http")
+            //         ? redirect.DestinationUrl.Trim()
+            //         : $"https://www.thepensionsregulator.gov.uk/{redirect.DestinationUrl}".Trim();
+
+            // }
+
+            // foreach (var redirect in redirectUrls)
+            // {
+            //     if (redirect.DestinationUrl.StartsWith("https://www.thepensionsregulator.gov.uk/"))
+            //     {
+            //         redirect.DestinationUrl = redirect.DestinationUrl.Replace("https://www.thepensionsregulator.gov.uk/", "/");
+            //     }
+            // }
+
+            foreach (var redirect in redirectUrls)
+            {
+                if (redirect.DestinationUrl.StartsWith("//"))
+                {
+                    redirect.DestinationUrl = redirect.DestinationUrl.Replace("//","/").Trim();
+                }
+            }
+
+            var redirectExport = new RedirectExportModel
         {
             Versions = new VersionInfo(),
-            Redirects = RedirectItems
-                .Where(x => x.IsValidRedirect == isValidRedirect)
-                .Select(item => new RedirectInfo
+            Redirects = RedirectItems.Where(x => x.IsValidRedirect == isValidRedirect).OrderBy(y => y.ItemPath).Take(10000).Select(item => new RedirectInfo
                 {
                     Key = item.RowKey,
                     Url = $"/{item.Url}".Trim(),
                     Destination = new DestinationInfo
                     {
-                        Url =  item.DestinationUrl.StartsWith("http") ? item.DestinationUrl.Trim() 
-                            : $"https://www.thepensionsregulator.gov.uk/{item.DestinationUrl}".Trim(),
+                        Url = FormatUrl(item.DestinationUrl.Trim())
                     }
                 })
-                .Take(10)
                 .ToList()
         };
 
-        // Serialize with indentation for readability
-        var options = new JsonSerializerOptions 
+            // Serialize with indentation for readability
+            var options = new JsonSerializerOptions 
         { 
             WriteIndented = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
-        
-        string jsonString = JsonSerializer.Serialize(redirectExport, options);
 
-        // Convert to bytes
-        byte[] bytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+            string jsonString = JsonSerializer.Serialize(redirectExport, options);
 
-        // Create file name with timestamp
-        string fileName = $"{(isValidRedirect ? "valid" : "invalid")}_redirects_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+            // Convert to bytes
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
 
-        // Use JS interop to download the file
-        await JS.InvokeVoidAsync(
-            "downloadFileFromStream",
-            Convert.ToBase64String(bytes),
-            fileName
-        );
+            // Create file name with timestamp
+            string fileName = $"{(isValidRedirect ? "valid" : "invalid")}_redirects_{DateTime.Now:yyyyMMdd_HHmmss}.json";
 
-        StatusMessage = $"Successfully exported {RedirectItems.Count} redirects to {fileName}";
+            // Use JS interop to download the file
+            await JS.InvokeVoidAsync(
+                "downloadFileFromStream",
+                Convert.ToBase64String(bytes),
+                fileName
+            );
+
+            StatusMessage = $"Successfully exported {RedirectItems.Count} redirects to {fileName}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error exporting redirects: {ex.Message}";
+        }
+
+        StateHasChanged();
     }
-    catch (Exception ex)
+
+    private string FormatUrl(string url)
     {
-        StatusMessage = $"Error exporting redirects: {ex.Message}";
-    }
+        url = url?.Trim();
 
-    StateHasChanged();
-}
+        if (url.StartsWith("https://www.thepensionsregulator.gov.uk/"))
+        {
+            Console.WriteLine($"start with tpr: {url}");
+            url = url.Replace("https://www.thepensionsregulator.gov.uk/", "/");
+        }
+
+        if (url.StartsWith("//"))
+        {
+            Console.WriteLine($"start with //: {url}");
+        }
+
+        if (!url.StartsWith("/") && !url.StartsWith("http"))
+        {
+            Console.WriteLine($"Does not start with / {url}");
+            url = $"/{url}";
+        }
+
+        return url.Replace("\u0026","&").Trim();
+    }
 
 
     private async Task ExportRedirectToJSONAsync2(bool isValidRedirect)

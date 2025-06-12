@@ -6,7 +6,7 @@
       "dotnetRunMessages": true,
       "launchBrowser": true,
       "applicationUrl": "https://localhost:41001",
-      "launchUrl": "https://localhost:41001/simple-redirect",
+      "launchUrl": "https://localhost:41001",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
