@@ -1,0 +1,33 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["FieldExporter.UI.styles.css"]" />
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <ImportMap />
+    <HeadOutlet />
+</head>
+
+<body class="p-3">
+    <Routes @rendermode="InteractiveServer" />
+    <script src="_framework/blazor.web.js"></script>
+
+    <script>
+        window.downloadFileFromStream = (base64String, fileName) => {
+            const link = document.createElement('a');
+            link.href = 'data:application/json;base64,' + base64String;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+
+</html>

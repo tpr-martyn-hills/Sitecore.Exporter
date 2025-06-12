@@ -1,0 +1,499 @@
+﻿@page "/"
+
+@using System.Text.Json
+@using Azure.Data.Tables
+@using FieldExporter.UI.Models
+@using FieldExporter.UI.Services
+
+@inject AzureTableStorageService AzureTableStorageService
+@inject IJSRuntime JS
+
+<PageTitle>Home</PageTitle>
+
+<div class="space-y-3">
+    <div class="flex space-x-2">
+
+        <div class="border rounded p-3 space-y-2">
+            <h1>Fields</h1>
+
+            <InputFile OnChange="@(e => HandleFileUpload(e, FieldsTableName))" accept=".json" />
+
+            <p>Total Field Items :: @FieldItems.Count</p>
+
+            <button class="border p-2 bg-gray-800 text-white rounded-lg" @onclick="() => ClearTableClickAsync(FieldsTableName)">Clear Field Items Table</button>
+        </div>
+
+        @if (RedirectItems.Any())
+        {
+            <div class="border rounded p-3 space-y-2">
+                <h1>Paths</h1>
+
+            <InputFile OnChange="@(e => HandleFileUpload(e, PathsTableName))" accept=".json" />
+
+            <p>Total Path Items :: @PathItems.Count</p>
+
+            <button class="border p-2 bg-gray-800 text-white rounded-lg" @onclick="() => ClearTableClickAsync(PathsTableName)">Clear Paths Items Table</button>
+        </div>
+        }
+
+        @if (FieldItems.Any())
+        {
+            <div class="border rounded p-3 space-y-2">
+                <h1>Redirects</h1>
+
+                <button class="border p-2 bg-gray-800 text-white rounded-lg" @onclick="() => GenerateRedirects()">Generate Redirects</button>
+
+                <p>Total Redirect Items :: @RedirectItems.Count</p>
+
+                <button class="border p-2 bg-gray-800 text-white rounded-lg" @onclick="() => ClearTableClickAsync(RedirectTableName)">Clear Redirect Items Table</button>
+            </div>
+        }
+
+        @if (RedirectItems.Any() && PathItems.Any())
+        {
+            <div class="border border-red-800 rounded p-3 space-y-2 bg-red-100">
+                <h1>Update Redirects</h1>
+
+                <p>Total Redirect Items :: @RedirectItems.Where(x => x.IsSitecoreItemDestination).Count()</p>
+
+                <button class="block border p-2 bg-gray-800 text-white rounded-lg" @onclick="() => SyncPathsWithRedirects()">Update redirects with paths</button>
+
+                @if (RedirectItems.Where(x => x.RedirectGenerated).Count() > 0)
+                {
+                    <button class="block border p-2 bg-green-800 text-white rounded-lg" @onclick="() => ExportRedirectToJSONAsync(true)">Export valid redirects to JSON</button>
+
+                    @if (RedirectItems.Where(x => !x.IsValidRedirect).Count() > 0)
+                    {
+                        <button class="block border p-2 bg-red-800 text-white rounded-lg" @onclick="() => ExportRedirectToJSONAsync(false)">Export invalid redirects to JSON</button>    
+                    }
+                }
+            </div>            
+        }
+    </div>
+
+    <p>@StatusMessage</p>
+
+    <div class="flex justify-between w-full">
+        <div class="w-1/4 space-y-2">
+            <h1>Path Sitecore Ids</h1>
+
+            <button class="ml-2 px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    @onclick="() => CopyToClipboard()">
+                Copy Ids to clipboard @PathSitecoreIds.Count()
+            </button>
+
+            <table class="border-collapse border border-gray-400 table-auto">
+                <tbody>
+@*                     @foreach (var destinationUrl in RedirectItems
+                                        .Where(x => x.IsSitecoreItemDestination)
+                                        .Select(x => x.DestinationUrl)
+                                        .Distinct()) *@
+                    @foreach(var destinationUrl in PathSitecoreIds)
+                    {
+                        <tr>
+                            <td class="border border-gray-300 p-2">
+                                <div class="flex justify-between items-center">
+                                    <span>@destinationUrl</span>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="w-3/4 space-y-2">
+            <div class="flex space-x-3 text-lg">
+                <h1 class="">Redirects :: @RedirectItems.Count()</h1>
+
+                <span>Awaiting :: @RedirectItems.Where(x => !x.RedirectGenerated).Count()</span>
+                @if (RedirectItems.Where(x => x.RedirectGenerated).Any())
+                {
+                    <span>Valid :: @RedirectItems.Where(x => x.IsValidRedirect).Count()</span>
+                    <span>Invalid :: @RedirectItems.Where(x => !x.IsValidRedirect).Count()</span>
+                }
+            </div>
+
+            <table class="border-collapse border border-gray-400 table-auto">
+                <thead>
+                    <tr>
+                        <th class="border border-gray-300 p-2">Item Id</th>
+                        <th class="border border-gray-300 p-2">Sitecore redirect</th>
+                        <th class="border border-gray-300 p-2">Valid Redirect</th>
+                        <th class="border border-gray-300 p-2">Redirect</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    @foreach (var item in RedirectItems.OrderBy(x => x.RowKey))
+                    {
+                        <tr>
+                            <td class="border border-gray-300 p-2 bg-gray-100" rowspan="4">@item.RowKey</td>
+                            <td class="border border-gray-300 p-2 bg-gray-50" rowspan="4">@(item.SitecoreDestinationId == null)</td>
+                            <td class="border border-gray-300 p-2 bg-gray-100" rowspan="4">@(item.RedirectGenerated ? item.IsValidRedirect : "Awaiting")</td>
+
+                            <td class="border border-gray-300 p-2">
+                                <span class="block font-bold">@item.ItemPath</span>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 p-2">
+                                <span class="block font-bold">@item.Url</span>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 p-2">
+                                <span class="block font-semibold">@item.SitecoreDestinationId</span>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 p-2">
+                                <span class="block font-semibold">@item.DestinationUrl</span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string RedirectTableName = "RedirectItemsTable";
+    private const string FieldsTableName = "FieldItemsTable";
+    private const string PathsTableName = "PathItemsTable";
+
+    private string StatusMessage;
+
+    private List<RedirectUrlItemTableEntity> RedirectItems { get; set; } = [];
+    private List<FieldItemTableEntity> FieldItems { get; set; } = [];
+    private List<PathItemTableEntity> PathItems { get; set; } = [];
+
+    private List<string> PathSitecoreIds { get; set; } = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var redirectUrlItems = await GetTableItems<RedirectUrlItemTableEntity>(RedirectTableName);
+        RedirectItems = redirectUrlItems.ToList();
+
+        var fieldItems = await GetTableItems<FieldItemTableEntity>(FieldsTableName);
+        FieldItems = fieldItems.ToList();
+
+        var pathItems = await GetTableItems<PathItemTableEntity>(PathsTableName);
+        PathItems = pathItems.ToList();
+
+        StateHasChanged();
+    }
+
+    private async Task SyncPathsWithRedirects()
+    {
+        foreach (var redirect in RedirectItems.Where(x => x.IsSitecoreItemDestination))
+        {
+            var pathItem = PathItems.FirstOrDefault(x => string.Equals(x.RowKey, redirect.DestinationUrl, StringComparison.InvariantCultureIgnoreCase));
+            if (pathItem != null)
+            {
+                redirect.DestinationUrl = pathItem.ItemPath;
+            }
+        }
+
+        foreach (var redirect in RedirectItems)
+        {
+            var pathItem = PathItems.FirstOrDefault(x => string.Equals(x.RowKey, redirect.RowKey, StringComparison.InvariantCultureIgnoreCase));
+            if (pathItem != null)
+            {
+                redirect.ItemPath = pathItem.ItemPath;
+            }
+        }
+
+        RedirectItems.ForEach(item => item.RedirectGenerated = true);
+
+        await AzureTableStorageService.AddUpdateBulkEntitiesAsync(RedirectTableName, RedirectItems);
+
+        StateHasChanged();
+    }
+
+    private async Task CopyToClipboard()
+    {
+        // var destinationUrls = RedirectItems
+        //     .Where(x => x.IsSitecoreItemDestination)
+        //     .Select(x => $"'{x.DestinationUrl}'")
+        //     .Distinct()
+        //     .Where(x => !string.IsNullOrWhiteSpace(x))
+        //     .Take(10000);  
+
+        var destinationUrls = PathSitecoreIds.Select(x => $"'{x}'")
+                                .Where(x => !string.IsNullOrWhiteSpace(x))
+                                .Distinct()
+                                .Take(10000);  
+
+        var clipboardText = string.Join("," + Environment.NewLine, destinationUrls);
+
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", clipboardText);
+            StatusMessage = $"Copied {destinationUrls.Count()} IDs to clipboard!";
+        }
+        catch (Exception)
+        {
+            StatusMessage = "Failed to copy to clipboard. Please check browser permissions.";
+        }
+        StateHasChanged();
+    }
+
+    private async Task GenerateRedirects()
+    {
+        RedirectItems = [];
+
+        foreach (var field in FieldItems)
+        {
+            var redirectItem = RedirectItems.FirstOrDefault(x => string.Equals(x.RowKey, field.PartitionKey, StringComparison.InvariantCultureIgnoreCase));
+            if (redirectItem is null)
+            {
+                redirectItem = new RedirectUrlItemTableEntity
+                {
+                    RowKey = field.PartitionKey,
+                    PartitionKey = "RedirectUrl",
+                    Url = field.FieldType == "Url" ? field.FieldValue : "",
+                    DestinationUrl = field.FieldType == "DestinationUrl" ? field.FieldValue : "",
+                };
+
+                RedirectItems.Add(redirectItem);
+            }
+
+            redirectItem.Url = field.FieldType == "Url" ? field.FieldValue : redirectItem.Url;
+            redirectItem.DestinationUrl = field.FieldType == "DestinationUrl" ? field.FieldValue : redirectItem.DestinationUrl;
+        }
+
+        foreach (var item in RedirectItems)
+        {
+            if (item.IsSitecoreItemDestination)
+            {
+                item.SitecoreDestinationId = item.DestinationUrl;
+            }
+        }
+
+        await AzureTableStorageService.AddUpdateBulkEntitiesAsync(RedirectTableName, RedirectItems);
+
+        StateHasChanged();
+    }
+
+    private async Task ExportRedirectToJSONAsync(bool isValidRedirect)
+    {
+        try
+        {
+            // Create a simplified version of the data with only the required fields
+            var simplifiedRedirects = RedirectItems.Where(x => x.IsValidRedirect == isValidRedirect).Select(item => new
+            {
+                RedirectItemId = item.RowKey,
+                RedirectItemPath = item.ItemPath,
+                item.Url,
+                item.DestinationUrl,
+                item.SitecoreDestinationId
+            }).ToList();
+
+            // Serialize with indentation for readability
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            string jsonString = JsonSerializer.Serialize(simplifiedRedirects.OrderBy(x => x.RedirectItemPath), options);
+
+            // Convert to bytes
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+
+            // Create file name with timestamp
+            string fileName = $"{(isValidRedirect ? "valid" : "invalid")}_redirects_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+
+            // Use JS interop to download the file
+            await JS.InvokeVoidAsync(
+                "downloadFileFromStream",
+                Convert.ToBase64String(bytes),
+                fileName
+            );
+
+            StatusMessage = $"Successfully exported {RedirectItems.Count} redirects to {fileName}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error exporting redirects: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task<IEnumerable<T>> GetTableItems<T>(string tableName) where T : class, ITableEntity, new()
+    {
+        var entities = await AzureTableStorageService.GetEntitiesAsync<T>(tableName);
+        return entities.Cast<T>();
+    }
+
+    private async Task ClearTableClickAsync(string tableName)
+    {
+        try
+        {
+            await AzureTableStorageService.ClearTableAsync(tableName);
+            StatusMessage = $"{tableName} Table cleared successfully.";
+
+            if (tableName == RedirectTableName)
+            {
+                RedirectItems = [];
+            }
+            else if (tableName == FieldsTableName)
+            {
+                FieldItems = [];
+            }
+            else if (tableName == PathsTableName)
+            {
+                PathItems = [];
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error clearing table: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e, string tableName)
+    {
+        var file = e.File;
+
+        if (file == null || !file.Name.EndsWith(".json"))
+        {
+            StatusMessage = "Please upload a valid JSON file.";
+            return;
+        }
+
+        StatusMessage = $"File '{file.Name}' uploaded successfully with size {file.Size} bytes.";
+
+        using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024 * 10); // 10 MB limit
+        using var reader = new StreamReader(stream);
+        var content = await reader.ReadToEndAsync();
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            StatusMessage = "The uploaded file is empty.";
+            return;
+        }
+
+        try
+        {
+            if (tableName == RedirectTableName)
+            {
+                StatusMessage = "Parsing Redirect Items...";
+
+                var records = JsonSerializer.Deserialize<List<RedirectUrlItemTableEntity>>(content);
+                StatusMessage = $"Successfully parsed {records?.Count ?? 0} records from '{file.Name}'.";
+
+                if (records.Any())
+                {
+                    await AzureTableStorageService.AddUpdateBulkEntitiesAsync(tableName, records);
+
+                    var items = await GetTableItems<RedirectUrlItemTableEntity>(tableName);
+                    RedirectItems = items.ToList();
+                }
+            }
+            else if (tableName == FieldsTableName)
+            {
+                StatusMessage = "Parsing Field Items...";
+
+                var records = JsonSerializer.Deserialize<List<FieldItemTableEntity>>(content);
+                StatusMessage = $"Successfully parsed {records?.Count ?? 0} records from '{file.Name}'.";
+
+                if (records.Any())
+                {
+                    foreach (var item in records)
+                    {
+                        item.FieldValue = ValidateAndFormatGuid(ExtractElementFromText(item.FieldValue));
+                    }
+
+                    await AzureTableStorageService.AddUpdateBulkEntitiesAsync(tableName, records);
+
+                    var items = await GetTableItems<FieldItemTableEntity>(tableName);
+                    FieldItems = items.ToList();
+
+                    PathSitecoreIds = [];
+
+                    foreach(var redirect in RedirectItems.Where(x => x.IsSitecoreItemDestination)
+                                                                       .Select(x => x.DestinationUrl)
+                                                                       .Distinct())
+                    {
+
+                        PathSitecoreIds.Add(redirect);
+                    }
+
+                    foreach (var item in RedirectItems)
+                    {
+                        PathSitecoreIds.Add(item.RowKey);
+                    }
+
+                    PathSitecoreIds = PathSitecoreIds.Distinct().ToList();
+                }
+            }
+            else if (tableName == PathsTableName)
+            {
+                StatusMessage = "Parsing Path Items...";
+
+                var records = JsonSerializer.Deserialize<List<PathItemTableEntity>>(content);
+                StatusMessage = $"Successfully parsed {records?.Count ?? 0} records from '{file.Name}'.";
+
+                if (records.Any())
+                {
+                    await AzureTableStorageService.AddUpdateBulkEntitiesAsync(tableName, records);
+
+                    var items = await GetTableItems<PathItemTableEntity>(tableName);
+                    PathItems = items.ToList();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error parsing JSON: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+    private string ExtractElementFromText(string linkElement)
+    {
+        linkElement = linkElement?.Trim();
+
+        if (!linkElement.StartsWith("<link"))
+            return linkElement.Trim();
+
+        var elementToExtract = linkElement.StartsWith("<link text") ? "id" : "url";
+
+        try
+        {
+            var xElement = System.Xml.Linq.XElement.Parse(linkElement);
+            return xElement.Attribute(elementToExtract)?.Value ?? string.Empty;
+        }
+        catch (System.Xml.XmlException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private string ValidateAndFormatGuid(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return string.Empty;
+
+        if (Guid.TryParse(input, out Guid result))
+        {
+            return result.ToString("D");
+        }
+
+        return input.Trim();
+    }
+
+    private bool IsValidGuid(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return false;
+
+        return Guid.TryParse(input, out _);
+    }
+
+}

@@ -1,0 +1,620 @@
+﻿@page "/pattern-match-export"
+
+@using System.Text.Json
+@using Azure.Data.Tables
+@using FieldExporter.UI.Models
+@using FieldExporter.UI.Models.PatternItems
+@using FieldExporter.UI.Services
+
+@inject AzureTableStorageService AzureTableStorageService
+@inject IJSRuntime JS
+
+<div class="space-y-3">
+
+    <h2 class="text-3xl font-extrabold">Pattern Match Export</h2>
+
+    <div class="flex justify-between space-x-3">
+        <div class="w-1/3">
+            <ol class="list-decimal list-inside">
+            </ol>
+        </div>
+
+        <div class="w-1/3 space-y-3">
+
+            @if (!InboundRules.Any())
+            {
+                <div class="border border-gray-800 p-3 rounded space-y-3">
+                    <div class="flex justify-between">
+                        <h3 class="font-semibold">Upload Inbound Rules </h3>
+                    </div>
+
+                    <InputFile OnChange="@(e => HandleInboundRulesFileUpload(e))" accept=".json" />
+                </div>
+            }
+
+            @if (InboundRules.Any() && !InboundRulesFields.Any())
+            {
+                <div class="border border-gray-800 p-3 rounded space-y-3">
+                    <div class="flex justify-between">
+                        <h3 class="font-semibold">Upload Inbound Fields </h3>
+                    </div>
+
+                    <InputFile OnChange="@(e => HandleInboundRulesFieldsFileUpload(e))" accept=".json" />
+                </div>
+            }
+
+            @if (InboundRulesFields.Any() && !InboundRulesPaths.Any())
+            {
+                <div class="border border-gray-800 p-3 rounded space-y-3">
+                    <div class="flex justify-between">
+                        <h3 class="font-semibold">Upload Paths file</h3>
+
+                    </div>
+
+                    <InputFile OnChange="@(e => HandlePathsUpload(e))" accept=".json" />
+                </div>
+            }
+
+        </div>
+
+        <div class="w-1/3 space-y-3">
+            <table class="border-collapse border border-gray-400 table-fixed text-sm w-full">
+                <tbody>
+                    <tr>
+                        <td class="border border-gray-300 p-2 w-1/4 bg-gray-100">Status</td>
+                        <td class="border border-gray-300 p-2" colspan="2">@StatusMessage</td>
+                    </tr>
+
+                    <tr>
+                        <td class="border border-gray-300 p-2 w-1/4 bg-gray-100">Inbound Rules</td>
+                        <td class="border border-gray-300 p-2">@InboundRules.Count</td>
+                        <td class="border border-gray-300 p-2 w-1/4">
+                            @if (InboundRules.Any())
+                            {
+                                <button class="px-2 py-1 bg-blue-500 text-white rounded w-full hover:bg-blue-600" @onclick="() => ResetAllAsync()">Reset</button>
+                            }
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="border border-gray-300 p-2 w-1/4 bg-gray-100">Inbound Rules Fields</td>
+                        <td class="border border-gray-300 p-2">@InboundRulesFields.Count</td>
+                        <td class="border border-gray-300 p-2 w-1/4">
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="border border-gray-300 p-2 w-1/4 bg-gray-100">Paths</td>
+                        <td class="border border-gray-300 p-2">@InboundRulesPaths.Count</td>
+                        <td class="border border-gray-300 p-2 w-1/4">
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="border border-gray-300 w-1/4 p-2 bg-gray-100">Sitecore Ids</td>
+                        <td class="border border-gray-300 p-2">@PathSitecoreIds.Count()</td>
+                        <td class="border border-gray-300 p-2 w-1/4">
+                            @if (PathSitecoreIds.Any())
+                            {
+                                <button class="px-2 py-1 bg-blue-500 text-white rounded w-full hover:bg-blue-600"
+                                        @onclick="() => CopyToClipboard()">
+                                    <span>Copy Ids</span>
+                                </button>
+                            }
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="border border-gray-300 p-2 w-1/4 bg-gray-100">Valid Redirects</td>
+                        <td class="border border-gray-300 p-2"><span class="hover:cursor-pointer hover:font-semibold" @onclick='(() => FilterResults("Valid Inbound Rules"))'>@InboundRules.Where(x => x.IsValidRedirect).Count()</span></td>
+                        <td class="border border-gray-300 p-2 w-1/4">
+                            @if (InboundRules.Where(x => x.RedirectGenerated).Count() > 0)
+                            {
+                                <button class="px-2 py-1 bg-blue-500 text-white rounded w-full hover:bg-blue-600"
+                                        @onclick="() => ExportRedirectToJSONAsync(true)">
+                                    <span>Export</span>
+                                </button>
+                            }
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="border border-gray-300 p-2 w-1/4 bg-gray-100">Invalid Redirects</td>
+                        <td class="border border-gray-300 p-2"><span class="hover:cursor-pointer hover:font-semibold" @onclick='(() => FilterResults("Invalid Inbound Rules"))'>@InboundRules.Where(x => !x.IsValidRedirect).Count()</span></td>
+                        <td class="border border-gray-300 p-2 w-1/4">
+                            @if (InboundRules.Where(x => x.RedirectGenerated).Count() > 0)
+                            {
+                                <button class="px-2 py-1 bg-blue-500 text-white rounded w-full hover:bg-blue-600"
+                                        @onclick="() => ExportRedirectToJSONAsync(false)">
+                                    <span>Export</span>
+                                </button>
+                            }
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="border border-gray-300 p-2 w-1/4 bg-gray-100">Sitecore Redirects</td>
+                        <td class="border border-gray-300 p-2"><span class="hover:cursor-pointer hover:font-semibold" @onclick='(() => FilterResults("Sitecore Inbound Rules"))'>@InboundRules.Where(x => x.IsSitecoreItemIdDestination).Count()</span></td>
+                        <td class="border border-gray-300 p-2 w-1/4"></td>
+                    </tr>
+
+                    <tr>
+                        <td class="border border-gray-300 p-2 w-1/4 bg-gray-100">Other Redirects</td>
+                        <td class="border border-gray-300 p-2"><span class="hover:cursor-pointer hover:font-semibold" @onclick='(() => FilterResults("Other Inbound Rules"))'>@InboundRules.Where(x => !x.IsSitecoreItemIdDestination).Count()</span></td>
+                        <td class="border border-gray-300 p-2 w-1/4"></td>
+                    </tr>
+
+                    <tr>
+                        <td class="border border-gray-300 p-2 w-1/4 bg-gray-100 font-bold">Total Redirects</td>
+                        <td class="border border-gray-300 p-2"><span class="hover:cursor-pointer hover:font-semibold" @onclick='(() => FilterResults())'>@InboundRules.Count()</span></td>
+                        <td class="border border-gray-300 p-2 w-1/4"></td>
+                    </tr>
+
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @if (FilteredInboundRules.Any())
+    {
+        <div class="space-y-2">
+            <h2 class="text-3xl font-extrabold">@ResultsHeaderText</h2>
+
+            @foreach (var item in FilteredInboundRules.OrderBy(x => x.ItemPath))
+            {
+                <table class="border-collapse border border-gray-400 table-fixed text-sm w-full">
+                    <tbody>
+                        <tr>
+                            <td class="border border-gray-300 w-1/4 p-2 bg-gray-100">Item ID</td>
+                            <td class="border border-gray-300 p-2">@item.ItemId</td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 w-1/4 p-2 bg-gray-100">Item Name</td>
+                            <td class="border border-gray-300 p-2">@item.ItemName</td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 p-2 bg-gray-100">Item Path</td>
+                            <td class="border border-gray-300 p-2">@item.ItemPath</td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 p-2 bg-gray-100">Pattern</td>
+                            <td class="border border-gray-300 p-2">@item.Pattern</td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 p-2 bg-gray-100">Destination Item Id</td>
+                            <td class="border border-gray-300 p-2">@item.DestinationItemId</td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 p-2 bg-gray-100">Destination Url Content</td>
+                            <td class="border border-gray-300 p-2">@item.DestinationUrlContent</td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 p-2 bg-gray-100">Destination Url Sitecore Id</td>
+                            <td class="border border-gray-300 p-2">@item.DestinationUrlSitecoreId</td>
+                        </tr>
+
+                        <tr>
+                            <td class="border border-gray-300 p-2 bg-gray-100">Destination Url</td>
+                            <td class="border border-gray-300 p-2">@item.DestinationUrl</td>
+                        </tr>
+                    </tbody>
+                </table>
+            }
+        </div>
+    }
+</div>
+
+
+@code {
+    private const string InboundRulesTableName = "InboundRulesTable";
+    private const string InboundRulesFieldsTableName = "InboundRulesFieldsTable";
+    private const string InboundRulesPathsTableName = "InboundRulesPathsTable";
+
+    private string StatusMessage = string.Empty;
+    private string ResultsHeaderText = "Inbound Rules";
+
+    private List<InboundRulesTE> InboundRules { get; set; } = [];
+    private List<FieldItemTE> InboundRulesFields { get; set; } = [];
+    private List<PathItemTableEntity> InboundRulesPaths { get; set; } = [];
+    private List<InboundRulesTE> FilteredInboundRules { get; set; } = [];
+
+    private List<string> PathSitecoreIds { get; set; } = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var inboundRulesItems = await GetTableItems<InboundRulesTE>(InboundRulesTableName);
+        InboundRules = inboundRulesItems.ToList();
+        FilteredInboundRules = InboundRules;
+
+        var inboundRulesFieldsItems = await GetTableItems<FieldItemTE>(InboundRulesFieldsTableName);
+        InboundRulesFields = inboundRulesFieldsItems.ToList();
+
+        var inboundRulePathItems = await GetTableItems<PathItemTableEntity>(InboundRulesPathsTableName);
+        InboundRulesPaths = inboundRulePathItems.ToList();
+
+        StateHasChanged();
+    }
+
+    private async Task CopyToClipboard()
+    {
+        var destinationUrls = PathSitecoreIds.Select(x => $"'{x}'")
+                                .Where(x => !string.IsNullOrWhiteSpace(x))
+                                .Distinct()
+                                .Take(10000);
+
+        var clipboardText = string.Join("," + Environment.NewLine, destinationUrls);
+
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", clipboardText);
+            StatusMessage = $"Copied {destinationUrls.Count()} IDs to clipboard!";
+        }
+        catch (Exception)
+        {
+            StatusMessage = "Failed to copy to clipboard. Please check browser permissions.";
+        }
+        StateHasChanged();
+    }
+
+    private async Task ExportRedirectToJSONAsync(bool isValidRedirect)
+    {
+        try
+        {
+            // Create a simplified version of the data with only the required fields
+            var simplifiedRedirects = InboundRules.Where(x => x.IsValidRedirect == isValidRedirect).Select(item => new
+            {
+                RedirectItemId = item.RowKey,
+                RedirectItemPath = item.ItemPath,
+                item.Pattern,
+                item.DestinationUrl,
+                item.IsSitecoreItemIdDestination,
+                item.DestinationUrlSitecoreId
+            }).ToList();
+
+            // Serialize with indentation for readability
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            string jsonString = JsonSerializer.Serialize(simplifiedRedirects.OrderBy(x => x.RedirectItemPath), options);
+
+            // Convert to bytes
+            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(jsonString);
+
+            // Create file name with timestamp
+            string fileName = $"{(isValidRedirect ? "valid" : "invalid")}_inbound_rules_{DateTime.Now:yyyyMMdd_HHmmss}.json";
+
+            // Use JS interop to download the file
+            await JS.InvokeVoidAsync(
+                "downloadFileFromStream",
+                Convert.ToBase64String(bytes),
+                fileName
+            );
+
+            StatusMessage = $"Successfully exported {InboundRules.Count} redirects to {fileName}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error exporting redirects: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+
+    private void FilterResults(string filterText = "Inbound Rules")
+    {
+        if (filterText == "Valid Inbound Rules")
+        {
+            FilteredInboundRules = InboundRules.Where(x => x.IsValidRedirect).ToList();
+        }
+        else if (filterText == "Invalid Inbound Rules")
+        {
+            FilteredInboundRules = InboundRules.Where(x => !x.IsValidRedirect).ToList();
+        }
+        else if (filterText == "Sitecore Inbound Rules")
+        {
+            FilteredInboundRules = InboundRules.Where(x => x.IsSitecoreItemIdDestination).ToList();
+        }
+        else if (filterText == "Other Inbound Rules")
+        {
+            FilteredInboundRules = InboundRules.Where(x => !x.IsSitecoreItemIdDestination).ToList();
+        }
+        else
+        {
+            FilteredInboundRules = InboundRules;
+        }
+
+        ResultsHeaderText = $"{filterText} :: {FilteredInboundRules.Count()}";
+    }
+
+
+    private async Task HandleInboundRulesFileUpload(InputFileChangeEventArgs e)
+    {
+        await ResetAllAsync();
+
+        var content = await LoadFileDetailsAsync(e.File);
+        if (string.IsNullOrEmpty(content))
+        {
+            StatusMessage = "The uploaded file is empty.";
+            StateHasChanged();
+            return;
+        }
+
+        StatusMessage = "Parsing Items...";
+        StateHasChanged();
+
+        var records = JsonSerializer.Deserialize<List<InboundRulesTE>>(content);
+        StatusMessage = $"Successfully parsed {records?.Count ?? 0} records from '{e.File.Name}'.";
+        StateHasChanged();
+
+        if (!records.Any())
+        {
+            StatusMessage = "No items found";
+            StateHasChanged();
+            return;
+        }
+
+        await AzureTableStorageService.AddUpdateBulkEntitiesAsync(InboundRulesTableName, records);
+
+        InboundRules = records;
+
+        PathSitecoreIds = InboundRules.Select(x => x.ItemId).Distinct().ToList();
+
+        StateHasChanged();
+    }
+
+    private async Task HandlePathsUpload(InputFileChangeEventArgs e)
+    {
+        var content = await LoadFileDetailsAsync(e.File);
+        if (string.IsNullOrEmpty(content))
+        {
+            StatusMessage = "The uploaded file is empty.";
+            StateHasChanged();
+            return;
+        }
+
+        StatusMessage = "Parsing Path Items...";
+
+        var records = JsonSerializer.Deserialize<List<PathItemTableEntity>>(content);
+        StatusMessage = $"Successfully parsed {records?.Count ?? 0} records from '{e.File.Name}'.";
+
+        if (records.Any())
+        {
+            await AzureTableStorageService.AddUpdateBulkEntitiesAsync(InboundRulesPathsTableName, records);
+
+            InboundRulesPaths = records;
+            await SyncPathsAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task SyncPathsAsync()
+    {
+        foreach (var redirect in InboundRules.Where(x => x.IsSitecoreItemIdDestination))
+        {
+            var pathItem = InboundRulesPaths.FirstOrDefault(x => string.Equals(x.RowKey, redirect.DestinationUrlSitecoreId, StringComparison.InvariantCultureIgnoreCase));
+            if (pathItem != null)
+            {
+                redirect.DestinationUrl = ConvertPathToUrl(pathItem.ItemPath);
+            }
+        }
+
+        foreach (var redirect in InboundRules)
+        {
+            var pathItem = InboundRulesPaths.FirstOrDefault(x => string.Equals(x.RowKey, redirect.RowKey, StringComparison.InvariantCultureIgnoreCase));
+            if (pathItem != null)
+            {
+                redirect.ItemPath = pathItem.ItemPath;
+            }
+        }
+
+        InboundRules.ForEach(item =>
+        {
+            item.RedirectGenerated = true;
+
+            item.DestinationUrl = ConvertPathToUrl(item.DestinationUrl, "/ThePensionsRegulator/Home/");
+        });
+
+        await AzureTableStorageService.AddUpdateBulkEntitiesAsync(InboundRulesTableName, InboundRules);
+
+        FilterResults();
+
+        StateHasChanged();
+    }
+
+    private async Task HandleInboundRulesFieldsFileUpload(InputFileChangeEventArgs e)
+    {
+        var content = await LoadFileDetailsAsync(e.File);
+        if (string.IsNullOrEmpty(content))
+        {
+            StatusMessage = "The uploaded file is empty.";
+            StateHasChanged();
+            return;
+        }
+
+        StatusMessage = "Parsing Items...";
+        StateHasChanged();
+
+        var records = JsonSerializer.Deserialize<List<FieldItemTE>>(content);
+        StatusMessage = $"Successfully parsed {records?.Count ?? 0} records from '{e.File.Name}'.";
+        StateHasChanged();
+
+        if (!records.Any())
+        {
+            StatusMessage = "No items found";
+            StateHasChanged();
+            return;
+        }
+
+        await AzureTableStorageService.AddUpdateBulkEntitiesAsync(InboundRulesFieldsTableName, records);
+
+        InboundRulesFields = records;
+
+        MergeInboundRules();
+
+        await AzureTableStorageService.AddUpdateBulkEntitiesAsync(InboundRulesTableName, InboundRules);
+
+        //Generate PathIds
+
+        PathSitecoreIds = InboundRules.Select(x => x.ItemId).Distinct().ToList();
+
+        foreach (var item in InboundRules.Where(x => x.IsSitecoreItemIdDestination))
+        {
+            PathSitecoreIds.Add(item.DestinationUrlSitecoreId);
+        }
+
+        PathSitecoreIds = PathSitecoreIds.Distinct().ToList();
+
+        StateHasChanged();
+    }
+
+    private void MergeInboundRules()
+    {
+        foreach (var rule in InboundRules)
+        {
+            var patternField = InboundRulesFields.FirstOrDefault(x => x.FieldType == "Pattern" && string.Equals(x.ItemId, rule.ItemId, StringComparison.InvariantCultureIgnoreCase));
+            var destinationItemIdField = InboundRulesFields.FirstOrDefault(x => x.FieldType == "DestinationItemId" && string.Equals(x.ItemId, rule.ItemId, StringComparison.InvariantCultureIgnoreCase));
+
+            rule.Pattern = patternField != null ? patternField.FieldValue : rule.Pattern;
+            rule.DestinationItemId = destinationItemIdField != null ? ValidateAndFormatGuid(destinationItemIdField.FieldValue) : rule.DestinationItemId;
+
+            if (!string.IsNullOrEmpty(rule.DestinationItemId))
+            {
+                var destinationUrlContentField = InboundRulesFields.FirstOrDefault(x => x.FieldType == "DestinationUrlContent" && string.Equals(x.ItemId, rule.DestinationItemId, StringComparison.InvariantCultureIgnoreCase));
+                rule.DestinationUrlContent = destinationUrlContentField != null ? destinationUrlContentField.FieldValue : rule.DestinationUrlContent;
+
+                if (!string.IsNullOrEmpty(rule.DestinationUrlContent))
+                {
+                    rule.DestinationUrl = ExtractElementFromText(rule.DestinationUrlContent);
+                    if (IsValidGuid(rule.DestinationUrl))
+                    {
+                        rule.DestinationUrlSitecoreId = ValidateAndFormatGuid(rule.DestinationUrl);
+                    }
+                }
+            }
+        }
+    }
+
+    private async Task ResetAllAsync()
+    {
+        try
+        {
+            PathSitecoreIds = [];
+
+            InboundRules = [];
+            InboundRulesFields = [];
+            FilteredInboundRules = [];
+            InboundRulesPaths = [];
+
+            await AzureTableStorageService.ClearTableAsync(InboundRulesTableName);
+            await AzureTableStorageService.ClearTableAsync(InboundRulesFieldsTableName);
+            await AzureTableStorageService.ClearTableAsync(InboundRulesPathsTableName);
+
+            StatusMessage = "Reset complete";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Error clearing tables: {ex.Message}";
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task<string> LoadFileDetailsAsync(IBrowserFile file)
+    {
+        if (file == null || !file.Name.EndsWith(".json"))
+        {
+            StatusMessage = "Please upload a valid JSON file.";
+            return string.Empty;
+        }
+
+        StatusMessage = $"File '{file.Name}' uploaded successfully with size {file.Size} bytes.";
+
+        using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024 * 10); // 10 MB limit
+        using var reader = new StreamReader(stream);
+        var content = await reader.ReadToEndAsync();
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            StatusMessage = "The uploaded file is empty.";
+            return string.Empty;
+        }
+
+        return content;
+    }
+
+    private async Task<IEnumerable<T>> GetTableItems<T>(string tableName) where T : class, ITableEntity, new()
+    {
+        var entities = await AzureTableStorageService.GetEntitiesAsync<T>(tableName);
+        return entities.Cast<T>();
+    }
+
+
+    private string ExtractElementFromText(string linkElement)
+    {
+        linkElement = linkElement?.Trim();
+
+        if (!linkElement.StartsWith("<link"))
+            return linkElement.Trim();
+
+        var elementToExtract = linkElement.StartsWith("<link text") ? "id" : "url";
+
+        try
+        {
+            var xElement = System.Xml.Linq.XElement.Parse(linkElement);
+            return xElement.Attribute(elementToExtract)?.Value ?? string.Empty;
+        }
+        catch (System.Xml.XmlException)
+        {
+            return string.Empty;
+        }
+    }
+
+    private string ValidateAndFormatGuid(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return string.Empty;
+
+        if (Guid.TryParse(input, out Guid result))
+        {
+            return result.ToString("D");
+        }
+
+        return input.Trim();
+    }
+
+    private bool IsValidGuid(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input))
+            return false;
+
+        return Guid.TryParse(input, out _);
+    }
+
+    private string ConvertPathToUrl(string path, string startsWith = "/sitecore/content/ThePensionsRegulator/Home/")
+    {
+        if (string.IsNullOrEmpty(path))
+            return string.Empty;
+
+        if (!path.StartsWith(startsWith))
+            return path.Trim();
+
+        var url = path.Trim().Replace(startsWith, "");
+        return url.Replace(" ", "-").Trim().ToLower();
+    }
+
+    private string ReturnSitecoreUrl(string path)
+    {
+        if (path.StartsWith("http"))
+            return path;
+
+        return $"https://www.thepensionsregulator.gov.uk/{path}".Trim();
+    }
+
+
+}
