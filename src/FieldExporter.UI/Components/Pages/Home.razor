@@ -444,32 +444,6 @@
     {
         try
         {
-            var redirectUrls = RedirectItems.Where(x => x.IsValidRedirect == isValidRedirect).OrderBy(y => y.ItemPath).Take(100);
-
-            // foreach (var redirect in redirectUrls)
-            // {
-            //     redirect.DestinationUrl = redirect.DestinationUrl.StartsWith("http")
-            //         ? redirect.DestinationUrl.Trim()
-            //         : $"https://www.thepensionsregulator.gov.uk/{redirect.DestinationUrl}".Trim();
-
-            // }
-
-            // foreach (var redirect in redirectUrls)
-            // {
-            //     if (redirect.DestinationUrl.StartsWith("https://www.thepensionsregulator.gov.uk/"))
-            //     {
-            //         redirect.DestinationUrl = redirect.DestinationUrl.Replace("https://www.thepensionsregulator.gov.uk/", "/");
-            //     }
-            // }
-
-            foreach (var redirect in redirectUrls)
-            {
-                if (redirect.DestinationUrl.StartsWith("//"))
-                {
-                    redirect.DestinationUrl = redirect.DestinationUrl.Replace("//","/").Trim();
-                }
-            }
-
             var redirectExport = new RedirectExportModel
         {
             Versions = new VersionInfo(),
@@ -538,7 +512,7 @@
             url = $"/{url}";
         }
 
-        return url.Replace("\u0026","&").Trim();
+        return url.Replace("/\u0026","&").Trim();
     }
 
 
